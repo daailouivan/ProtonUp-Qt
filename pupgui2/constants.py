@@ -6,7 +6,7 @@ from PySide6.QtGui import QColor, QPalette
 
 
 APP_NAME = 'ProtonUp-Qt'
-APP_VERSION = '2.8.0'
+APP_VERSION = '2.8.1'
 APP_ID = 'net.davidotek.pupgui2'
 APP_ICON_FILE = os.path.join(xdg_config_home, 'pupgui/appicon256.png')
 APP_GHAPI_URL = 'https://api.github.com/repos/Davidotek/ProtonUp-qt/releases'
@@ -70,7 +70,7 @@ PROTONDB_COLORS = {'platinum': '#b4c7dc', 'gold': '#cfb53b', 'silver': '#a6a6a6'
 STEAM_API_GETAPPLIST_URL = 'https://api.steampowered.com/ISteamApps/GetAppList/v2/'
 STEAM_APP_PAGE_URL = 'https://store.steampowered.com/app/'
 AWACY_GAME_LIST_URL = 'https://raw.githubusercontent.com/Starz0r/AreWeAntiCheatYet/master/games.json'
-AWACY_WEB_URL = 'https://areweanticheatyet.com/'
+AWACY_WEB_URL = 'https://areweanticheatyet.com/?search={GAMENAME}&sortOrder=&sortBy='
 LOCAL_AWACY_GAME_LIST = os.path.join(TEMP_DIR, 'awacy_games.json')
 PROTONDB_API_URL = 'https://www.protondb.com/api/v1/reports/summaries/{game_id}.json'
 PROTONDB_APP_PAGE_URL = 'https://protondb.com/app/'

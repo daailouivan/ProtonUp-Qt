@@ -3,14 +3,12 @@
 # Copyright (C) 2021 DavidoTek, partially based on AUNaseef's protonup
 
 import os
-import shutil
-import tarfile
 import requests
 import hashlib
 
 from PySide6.QtCore import QObject, QCoreApplication, Signal, Property
 
-from pupgui2.util import ghapi_rlcheck
+from pupgui2.util import ghapi_rlcheck, extract_tar
 
 
 CT_NAME = 'Lutris-Wine'
@@ -126,7 +124,14 @@ class CtInstaller(QObject):
         tags = []
         for release in ghapi_rlcheck(self.rs.get(f'{self.CT_URL}?per_page={str(count)}').json()):
             if 'tag_name' in release:
-                tags.extend((release['tag_name'], release['tag_name'].replace('lutris-', 'lutris-fshack-')))
+                tags.append(release['tag_name'])  # regular release
+
+                # Get fshack builds (only for <= 7.2 currently) -- Only displays if we have an fshack release
+                if 'assets' in release and len(release['assets']) >= 2:
+                    for asset in release['assets']:
+                        if 'lutris-fshack' in asset['name']:
+                            tags.append(release['tag_name'].replace('lutris-', 'lutris-fshack-'))
+                            break
 
         return tags
 
@@ -157,20 +162,17 @@ class CtInstaller(QObject):
             else:
                 return False
 
-        destination = temp_dir
-        destination += data['download'].split('/')[-1]
-        destination = destination
-
-        if not self.__download(url=data['download'], destination=destination):
+        proton_tar = os.path.join(temp_dir, data['download'].split('/')[-1])
+        if not self.__download(url=data['download'], destination=proton_tar):
             return False
 
-        download_checksum = self.__sha512sum(destination)
+        download_checksum = self.__sha512sum(proton_tar)
         if source_checksum and (download_checksum not in source_checksum):
             return False
 
-        if os.path.exists(protondir):
-            shutil.rmtree(protondir)
-        tarfile.open(destination, "r:xz").extractall(install_dir)
+        if not extract_tar(proton_tar, install_dir, mode='xz'):
+            return False
+
         if os.path.exists(checksum_dir):
             open(checksum_dir, 'w').write(download_checksum)
 
