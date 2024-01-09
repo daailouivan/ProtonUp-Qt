@@ -4,12 +4,12 @@
 
 from PySide6.QtCore import QCoreApplication
 
-from pupgui2.resources.ctmods.ctmod_steamtinkerlaunch-navi import CtInstaller as stlCtInstaller
+from pupgui2.resources.ctmods.ctmod_steamtinkerlaunch_navi import CtInstaller as stlCtInstaller
 
 
 CT_NAME = 'SteamTinkerLaunch-git-navi'
 CT_LAUNCHERS = ['steam', 'advmode', 'native-only']
-CT_DESCRIPTION = {'en': QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_git-navi', '''
+CT_DESCRIPTION = {'en': QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_git_navi', '''
 <b>Git release - May be unstable</b>
 <br/><br/>
 Linux wrapper tool for use with the Steam client which allows for easy graphical configuration of game tools for Proton and native Linux games.

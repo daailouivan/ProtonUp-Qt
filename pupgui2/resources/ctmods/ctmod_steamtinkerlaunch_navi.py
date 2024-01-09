@@ -16,7 +16,7 @@ from pupgui2.util import ghapi_rlcheck
 
 CT_NAME = 'SteamTinkerLaunch-navi'
 CT_LAUNCHERS = ['steam', 'native-only']
-CT_DESCRIPTION = {'en': QCoreApplication.instance().translate('ctmod_steamtinkerlaunch-navi', '''
+CT_DESCRIPTION = {'en': QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', '''
 Linux wrapper tool for use with the Steam client which allows for easy graphical configuration of game tools for Proton and native Linux games.
 <br/><br/>
 On <b>Steam Deck</b>, relevant dependencies will be installed for you. If you are not on Steam Deck, <b>ensure you have the following dependencies installed</b>:
