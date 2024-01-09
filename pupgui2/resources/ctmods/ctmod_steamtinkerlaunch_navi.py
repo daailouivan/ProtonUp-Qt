@@ -12,11 +12,12 @@ from pupgui2.datastructures import MsgBoxType, MsgBoxResult
 from pupgui2.steamutil import get_fish_user_paths, remove_steamtinkerlaunch, get_external_steamtinkerlaunch_intall
 from pupgui2.util import host_which, config_advanced_mode
 from pupgui2.util import ghapi_rlcheck
+from pupgui2.util import build_headers_with_authorization
 
 
 CT_NAME = 'SteamTinkerLaunch-navi'
 CT_LAUNCHERS = ['steam', 'native-only']
-CT_DESCRIPTION = {'en': QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', '''
+CT_DESCRIPTION = {'en': QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi_navi', '''
 Linux wrapper tool for use with the Steam client which allows for easy graphical configuration of game tools for Proton and native Linux games.
 <br/><br/>
 On <b>Steam Deck</b>, relevant dependencies will be installed for you. If you are not on Steam Deck, <b>ensure you have the following dependencies installed</b>:
@@ -37,7 +38,7 @@ On <b>Steam Deck</b>, relevant dependencies will be installed for you. If you ar
 More information is available on the SteamTinkerLaunch Installation wiki page.
 <br/><br/>
 SteamTinkerLaunch has a number of <b>Optional Dependencies</b> which have to be installed separately for extra functionality. Please see the Optional Dependencies section
-of the SteamTinkerLaunch Installation guide on its GitHub page..''')}
+of the SteamTinkerLaunch Installation guide on its GitHub page.''')}
 
 
 class CtInstaller(QObject):
@@ -59,7 +60,11 @@ class CtInstaller(QObject):
         self.p_download_canceled = False
         self.remove_existing_installation = False
         self.main_window = main_window
-        self.rs = main_window.rs or requests.Session()
+
+        self.rs = requests.Session()
+        rs_headers = build_headers_with_authorization({}, main_window.web_access_tokens, 'github')
+        self.rs.headers.update(rs_headers)
+
         self.allow_git = allow_git
         proc_prefix = ['flatpak-spawn', '--host'] if os.path.exists('/.flatpak-info') else []
         self.distinfo = subprocess.run(
@@ -190,16 +195,16 @@ class CtInstaller(QObject):
                 'xprop': host_which('xprop'),
                 'xrandr': host_which('xrandr'),
                 'xxd': host_which('xxd'),
-                'xwinfo': host_which('xwininfo'),
+                'xwininfo': host_which('xwininfo'),
                 'yad >= 7.2': yad_exe and yad_ver >= 7.2
             }
 
         if all(deps_met.values()):
             return True
-        msg = QCoreApplication.instance().translate('ctmod_steamtinkerlaunch', 'You have several unmet dependencies for SteamTinkerLaunch.\n\n')
+        msg = QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', 'You have several unmet dependencies for SteamTinkerLaunch.\n\n')
         msg += '\n'.join([f'{dep_name}: {"found" if is_dep_met else "missing"}' for (dep_name, is_dep_met) in deps_met.items()])
-        msg += QCoreApplication.instance().translate('ctmod_steamtinkerlaunch', '\n\nInstallation will be cancelled.')
-        self.message_box_message.emit(QCoreApplication.instance().translate('ctmod_steamtinkerlaunch', 'Missing dependencies!'), msg, QMessageBox.Warning)
+        msg += QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', '\n\nInstallation will be cancelled.')
+        self.message_box_message.emit(QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', 'Missing dependencies!'), msg, QMessageBox.Warning)
 
         return False  # Installation would fail without dependencies.
 
@@ -231,9 +236,9 @@ class CtInstaller(QObject):
         if has_external_install:
             print('Non-ProtonUp-Qt installation of SteamTinkerLaunch detected. Asking the user what they want to do...')
             self.question_box_message.emit(
-                QCoreApplication.instance().translate('ctmod_steamtinkerlaunch', 'Existing SteamTinkerLaunch Installation'),
-                QCoreApplication.instance().translate('ctmod_steamtinkerlaunch', 'It looks like you have an existing SteamTinkerLaunch installation at \'{EXTERNAL_INSTALL_PATH}\' that was not installed by ProtonUp-Qt.\n\nReinstalling SteamTinkerLaunch with ProtonUp-Qt will move your installation folder to \'{STL_INSTALL_PATH}\'.\n\nYou may also choose to remove your existing installation, if ProtonUp-Qt has write access to this folder. Do you want to continue installing SteamTinkerLaunch? (This will not affect any existing SteamTinkerLaunch configuration.)').format(EXTERNAL_INSTALL_PATH=has_external_install, STL_INSTALL_PATH=constants.STEAM_STL_INSTALL_PATH),
-                QCoreApplication.instance().translate('ctmod_steamtinkerlaunch' ,'Remove existing SteamTinkerLaunch installation'),
+                QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', 'Existing SteamTinkerLaunch Installation'),
+                QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', 'It looks like you have an existing SteamTinkerLaunch installation at \'{EXTERNAL_INSTALL_PATH}\' that was not installed by ProtonUp-Qt.\n\nReinstalling SteamTinkerLaunch with ProtonUp-Qt will move your installation folder to \'{STL_INSTALL_PATH}\'.\n\nYou may also choose to remove your existing installation, if ProtonUp-Qt has write access to this folder. Do you want to continue installing SteamTinkerLaunch? (This will not affect any existing SteamTinkerLaunch configuration.)').format(EXTERNAL_INSTALL_PATH=has_external_install, STL_INSTALL_PATH=constants.STEAM_STL_INSTALL_PATH),
+                QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi' ,'Remove existing SteamTinkerLaunch installation'),
                 MsgBoxType.OK_CANCEL_CB,
                 QMessageBox.Warning
             )
@@ -342,9 +347,9 @@ class CtInstaller(QObject):
             if should_show_shellmod_dialog:
                 shellmod_msgbox_type = MsgBoxType.OK_CANCEL_CB_CHECKED if config_advanced_mode() == 'enabled' else MsgBoxType.OK_CANCEL
                 self.question_box_message.emit(
-                    QCoreApplication.instance().translate('ctmod_steamtinkerlaunch', 'Add SteamTinkerLaunch to PATH'),
-                    QCoreApplication.instance().translate('ctmod_steamtinkerlaunch', 'By default, ProtonUp-Qt will add SteamTinkerLaunch to all available Shell paths. This makes it easier to use with native Linux games. It also enables SteamTinkerLaunch commands from anywhere in the command line.\n\nSome users may not want this functionality. Do you want to continue installing SteamTinkerLaunch?'),
-                    QCoreApplication.instance().translate('ctmod_steamtinkerlaunch', 'Allow PATH modification'),
+                    QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', 'Add SteamTinkerLaunch to PATH'),
+                    QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', 'By default, ProtonUp-Qt will add SteamTinkerLaunch to all available Shell paths. This makes it easier to use with native Linux games. It also enables SteamTinkerLaunch commands from anywhere in the command line.\n\nSome users may not want this functionality. Do you want to continue installing SteamTinkerLaunch?'),
+                    QCoreApplication.instance().translate('ctmod_steamtinkerlaunch_navi', 'Allow PATH modification'),
                     shellmod_msgbox_type,
                     QMessageBox.Warning
                 )
@@ -370,7 +375,7 @@ class CtInstaller(QObject):
                 pup_stl_path_date = f'# Added by ProtonUp-Qt on {datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")}'
                 pup_stl_path_line = f'if [ -d "{stl_path}" ]; then export PATH="$PATH:{stl_path}"; fi'
                 present_shell_files = [
-                    os.path.join(os.path.expanduser('~'), f) for f in os.listdir(os.path.expanduser('~')) if os.path.isfile(os.path.join(os.path.expanduser('~'), f)) and f in constants.STEAM_STL_SHELL_FILES
+                    os.path.join(constants.HOME_DIR, f) for f in os.listdir(constants.HOME_DIR) if os.path.isfile(os.path.join(constants.HOME_DIR, f)) and f in constants.STEAM_STL_SHELL_FILES
                 ]
                 if os.path.exists(constants.STEAM_STL_FISH_VARIABLES):
                     present_shell_files.append(constants.STEAM_STL_FISH_VARIABLES)
@@ -398,7 +403,7 @@ class CtInstaller(QObject):
             print('Adding SteamTinkerLaunch as a compatibility tool...')
             subprocess.run(stl_proc_prefix + ['./steamtinkerlaunch', 'compat', 'add'])
 
-            os.chdir(os.path.expanduser('~'))
+            os.chdir(constants.HOME_DIR)
 
         protondir = os.path.join(install_dir, 'SteamTinkerLaunch')
 
