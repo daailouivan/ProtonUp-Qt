@@ -2,7 +2,6 @@ import os
 import sys
 import shutil
 import pkgutil
-import requests
 import subprocess
 import threading
 
@@ -12,7 +11,6 @@ from PySide6.QtGui import QIcon, QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QLabel, QPushButton, QCheckBox, QProgressBar, QVBoxLayout
 from PySide6.QtUiTools import QUiLoader
 
-from pupgui2.resources import ui
 from pupgui2.constants import APP_NAME, APP_VERSION, BUILD_INFO, TEMP_DIR, STEAM_STL_INSTALL_PATH
 from pupgui2.constants import STEAM_PROTONGE_FLATPAK_APPSTREAM, STEAM_BOXTRON_FLATPAK_APPSTREAM, STEAM_STL_FLATPAK_APPSTREAM
 from pupgui2 import ctloader
@@ -21,13 +19,14 @@ from pupgui2.gamepadinputworker import GamepadInputWorker
 from pupgui2.pupgui2aboutdialog import PupguiAboutDialog
 from pupgui2.pupgui2ctinfodialog import PupguiCtInfoDialog
 from pupgui2.pupgui2customiddialog import PupguiCustomInstallDirectoryDialog
+from pupgui2.pupgui2exceptionhandler import PupguiExceptionHandler
 from pupgui2.pupgui2gamelistdialog import PupguiGameListDialog
 from pupgui2.pupgui2installdialog import PupguiInstallDialog
-from pupgui2.steamutil import get_steam_acruntime_list, get_steam_app_list, get_steam_ct_game_map
+from pupgui2.steamutil import get_steam_acruntime_list, get_steam_app_list, get_steam_ct_game_map, get_steam_global_ctool_name
 from pupgui2.heroicutil import is_heroic_launcher, get_heroic_game_list
 from pupgui2.util import apply_dark_theme, create_compatibilitytools_folder, get_installed_ctools, remove_ctool
 from pupgui2.util import install_directory, available_install_directories, get_install_location_from_directory_name
-from pupgui2.util import print_system_information, single_instance, download_awacy_gamelist, is_online, config_advanced_mode, compat_tool_available
+from pupgui2.util import print_system_information, single_instance, download_awacy_gamelist, is_online, config_advanced_mode, config_github_access_token, config_gitlab_access_token, compat_tool_available
 
 
 class InstallWineThread(QThread):
@@ -80,9 +79,11 @@ class MainWindow(QObject):
     def __init__(self):
         super(MainWindow, self).__init__()
 
-        self.rs = requests.Session()
-        if token := os.getenv('PUPGUI_GHA_TOKEN'):
-            self.rs.headers.update({'Authorization': f'token {token}'})
+        self.web_access_tokens = {
+            'github': os.getenv('PUPGUI_GHA_TOKEN') or config_github_access_token(),
+            'gitlab': os.getenv('PUPGUI_GLA_TOKEN') or config_gitlab_access_token(),
+        }
+
         self.ct_loader = ctloader.CtLoader(main_window=self)
 
         for ctobj in self.ct_loader.get_ctobjs():
@@ -226,10 +227,15 @@ class MainWindow(QObject):
         # Launcher specific (Steam): Number of games using the compatibility tool
         elif install_loc.get('launcher') == 'steam' and 'vdf_dir' in install_loc:
             get_steam_app_list(install_loc.get('vdf_dir'), cached=False)  # update app list cache
+            global_ctool_name: str = get_steam_global_ctool_name(install_loc.get('vdf_dir'))
             self.compat_tool_index_map += get_steam_acruntime_list(install_loc.get('vdf_dir'), cached=True)
-            map = get_steam_ct_game_map(install_loc.get('vdf_dir'), self.compat_tool_index_map, cached=True)
+            ct_game_map = get_steam_ct_game_map(install_loc.get('vdf_dir'), self.compat_tool_index_map, cached=True)
             for ct in self.compat_tool_index_map:
-                ct.no_games = len(map.get(ct, []))
+                ct.no_games = len(ct_game_map.get(ct, []))
+                ct_name = ct.get_internal_name()
+                if ct_name == global_ctool_name:
+                    ct.set_global()  # Set (global) text
+                    self.compat_tool_index_map.insert(0, self.compat_tool_index_map.pop(self.compat_tool_index_map.index(ct)))  # Move global ctool to top of list
         # Launcher specific (Heroic): Set number of installed games using compat tool
         elif is_heroic_launcher(install_loc.get('launcher')):
             heroic_dir = os.path.join(os.path.expanduser(install_loc.get('install_dir')), '../..')
@@ -244,7 +250,7 @@ class MainWindow(QObject):
             self.get_installed_versions('vkd3d', vkd3d_dir)
 
         for ct in self.compat_tool_index_map:
-            self.ui.listInstalledVersions.addItem(ct.get_displayname(unused_tr=self.tr('unused')))
+            self.ui.listInstalledVersions.addItem(ct.get_displayname(unused_tr=self.tr('unused'), global_tr=self.tr('global')))
             if ct.no_games == 0:
                 unused_ctools += 1
 
@@ -405,6 +411,9 @@ class MainWindow(QObject):
             if ct.ct_type in [CTType.STEAM_CT, CTType.STEAM_RT]:
                 self.ui.btnRemoveSelected.setEnabled(False)
                 break
+            if ct.is_global:
+                self.ui.btnRemoveSelected.setEnabled(False)
+                break
 
     def btn_show_ct_info_clicked(self):
         install_loc = get_install_location_from_directory_name(install_directory())
@@ -525,6 +534,8 @@ def main():
     app.setApplicationVersion(APP_VERSION)
     app.setWindowIcon(QIcon.fromTheme('net.davidotek.pupgui2'))
     app.setDesktopFileName('net.davidotek.pupgui2')
+
+    PupguiExceptionHandler(app)
 
     lang = QLocale.languageToCode(QLocale().language())
     lname = QLocale().name()

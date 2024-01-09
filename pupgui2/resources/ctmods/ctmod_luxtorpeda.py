@@ -6,8 +6,10 @@ import os
 import requests
 
 from PySide6.QtCore import QObject, QCoreApplication, Signal, Property
+from PySide6.QtWidgets import QMessageBox
 
-from pupgui2.util import ghapi_rlcheck, extract_tar, write_tool_version
+from pupgui2.util import extract_tar, write_tool_version
+from pupgui2.util import build_headers_with_authorization, create_missing_dependencies_message, fetch_project_release_data, fetch_project_releases
 
 
 CT_NAME = 'Luxtorpeda'
@@ -23,11 +25,20 @@ class CtInstaller(QObject):
 
     p_download_progress_percent = 0
     download_progress_percent = Signal(int)
+    message_box_message = Signal((str, str, QMessageBox.Icon))
 
     def __init__(self, main_window = None):
         super(CtInstaller, self).__init__()
         self.p_download_canceled = False
-        self.rs = main_window.rs or requests.Session()
+
+        # Allows override for Boxtron/Roberta
+        self.extract_dir_name = 'luxtorpeda'
+        self.deps = []
+        self.release_format = 'tar.xz'
+
+        self.rs = requests.Session()
+        rs_headers = build_headers_with_authorization({}, main_window.web_access_tokens, 'github')
+        self.rs.headers.update(rs_headers)
 
     def get_download_canceled(self):
         return self.p_download_canceled
@@ -80,31 +91,34 @@ class CtInstaller(QObject):
         Content(s):
             'version', 'date', 'download', 'size'
         """
-        url = self.CT_URL + (f'/tags/{tag}' if tag else '/latest')
-        data = requests.get(url).json()
-        if 'tag_name' not in data:
-            return None
 
-        values = {'version': data['tag_name'], 'date': data['published_at'].split('T')[0]}
-        for asset in data['assets']:
-            if asset['name'].endswith('tar.xz'):
-                values['download'] = asset['browser_download_url']
-                values['size'] = asset['size']
-        return values
+        return fetch_project_release_data(self.CT_URL, self.release_format, self.rs, tag=tag)
 
-    def is_system_compatible(self):
+    def is_system_compatible(self, ct_name: str = CT_NAME) -> bool:
         """
         Are the system requirements met?
         Return Type: bool
         """
-        return True
+
+        if not self.deps:
+            return True  # Skip check if we have no dependencies
+
+        # Emit warning if we generated a missing dependencies message
+        msg_tr_title = self.tr('Missing dependencies!')
+        msg, success = create_missing_dependencies_message(ct_name, self.deps)
+        if not success:
+            self.message_box_message.emit(msg_tr_title, msg, QMessageBox.Warning)
+
+        return True  # install Boxtron anyway
+
 
     def fetch_releases(self, count=100):
         """
         List available releases
         Return Type: str[]
         """
-        return [release['tag_name'] for release in ghapi_rlcheck(requests.get(f'{self.CT_URL}?per_page={str(count)}').json()) if 'tag_name' in release]
+
+        return fetch_project_releases(self.CT_URL, self.rs, count=count)
 
     def get_tool(self, version, install_dir, temp_dir):
         """
@@ -120,7 +134,7 @@ class CtInstaller(QObject):
         if not self.__download(url=data['download'], destination=luxtorpeda_tar):
             return False
 
-        luxtorpeda_dir = os.path.join(install_dir, 'luxtorpeda')
+        luxtorpeda_dir = os.path.join(install_dir, self.extract_dir_name)
         if not extract_tar(luxtorpeda_tar, install_dir, mode='xz'):
             return False
         write_tool_version(luxtorpeda_dir, version)

@@ -7,7 +7,9 @@ import requests
 
 from PySide6.QtCore import QObject, QCoreApplication, Signal, Property
 
-from pupgui2.util import ghapi_rlcheck, extract_tar, extract_tar_zst
+from pupgui2.datastructures import Launcher
+from pupgui2.util import extract_tar, extract_tar_zst, get_launcher_from_installdir
+from pupgui2.util import build_headers_with_authorization, fetch_project_release_data, fetch_project_releases
 
 
 CT_NAME = 'vkd3d-proton'
@@ -26,7 +28,11 @@ class CtInstaller(QObject):
     def __init__(self, main_window = None):
         super(CtInstaller, self).__init__()
         self.p_download_canceled = False
-        self.rs = main_window.rs or requests.Session()
+        self.release_format = 'tar.zst'
+
+        self.rs = requests.Session()
+        rs_headers = build_headers_with_authorization({}, main_window.web_access_tokens, 'github')
+        self.rs.headers.update(rs_headers)
 
     def get_download_canceled(self):
         return self.p_download_canceled
@@ -79,17 +85,8 @@ class CtInstaller(QObject):
         Content(s):
             'version', 'date', 'download', 'size', 'checksum'
         """
-        url = self.CT_URL + (f'/tags/{tag}' if tag else '/latest')
-        data = self.rs.get(url).json()
-        if 'tag_name' not in data:
-            return None
 
-        values = {'version': data['tag_name'], 'date': data['published_at'].split('T')[0]}
-        for asset in data['assets']:
-            if asset['name'].endswith('.tar.zst') or asset['name'].endswith('.tar.xz'):
-                values['download'] = asset['browser_download_url']
-                values['size'] = asset['size']
-        return values
+        return fetch_project_release_data(self.CT_URL, self.release_format, self.rs, tag=tag)
 
     def is_system_compatible(self):
         """
@@ -103,7 +100,8 @@ class CtInstaller(QObject):
         List available releases
         Return Type: str[]
         """
-        return [release['tag_name'] for release in ghapi_rlcheck(self.rs.get(f'{self.CT_URL}?per_page={str(count)}').json()) if 'tag_name' in release]
+
+        return fetch_project_releases(self.CT_URL, self.rs, count=count)
 
     def get_tool(self, version, install_dir, temp_dir):
         """
@@ -144,9 +142,10 @@ class CtInstaller(QObject):
         Return Type: str
         """
 
-        if 'lutris/runners' in install_dir:
+        launcher = get_launcher_from_installdir(install_dir)
+        if launcher == Launcher.LUTRIS:
             return os.path.abspath(os.path.join(install_dir, '../../runtime/vkd3d'))
-        if 'heroic/tools' in install_dir:
+        if launcher == Launcher.HEROIC:
             return os.path.abspath(os.path.join(install_dir, '../vkd3d'))
         else:
             return install_dir  # Default to install_dir

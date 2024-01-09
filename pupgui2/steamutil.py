@@ -165,7 +165,7 @@ def get_steam_ct_game_map(steam_config_folder: str, compat_tools: List[BasicComp
     Informal Example: { GE-Proton7-43: [GTA V, Cyberpunk 2077], SteamTinkerLaunch: [Vecter, Terraria] }
     Return Type: Dict[BasicCompatTool, List[SteamApp]]
     """
-    map = {}
+    ct_game_map = {}
 
     apps = get_steam_app_list(steam_config_folder, cached=cached)
 
@@ -173,9 +173,9 @@ def get_steam_ct_game_map(steam_config_folder: str, compat_tools: List[BasicComp
 
     for app in apps:
         if app.app_type == 'game' and app.compat_tool in ct_name_object_map:
-            map.setdefault(ct_name_object_map.get(app.compat_tool), []).append(app)
+            ct_game_map.setdefault(ct_name_object_map.get(app.compat_tool), []).append(app)
 
-    return map
+    return ct_game_map
 
 
 def get_steam_ctool_list(steam_config_folder: str, only_proton=False, cached=False) -> List[SteamApp]:
@@ -193,6 +193,19 @@ def get_steam_ctool_list(steam_config_folder: str, only_proton=False, cached=Fal
             ctools.append(app)
 
     return ctools
+
+
+def get_steam_global_ctool_name(steam_config_folder: str) -> str:
+
+    """
+    Return the internal name of the global Steam compatibility tool selected in the Steam Play settings from the Steam Client.
+    Return Type: str
+    """
+
+    config_vdf_file = os.path.join(os.path.expanduser(steam_config_folder), 'config.vdf')
+    d = get_steam_vdf_compat_tool_mapping(vdf.load(open(config_vdf_file)))
+
+    return d.get('0', {}).get('name', '')
 
 
 def get_steam_acruntime_list(steam_config_folder: str, cached=False) -> List[BasicCompatTool]:

@@ -8,11 +8,12 @@ import webbrowser
 import requests
 import zipfile
 import tarfile
+import random
 
 import zstandard
 
 from configparser import ConfigParser
-from typing import Dict, List, Union, Tuple
+from typing import Dict, List, Union, Tuple, Optional, Callable
 
 import PySide6
 from PySide6.QtCore import QCoreApplication
@@ -20,7 +21,8 @@ from PySide6.QtWidgets import QApplication, QStyleFactory, QMessageBox, QCheckBo
 
 from pupgui2.constants import POSSIBLE_INSTALL_LOCATIONS, CONFIG_FILE, PALETTE_DARK, TEMP_DIR
 from pupgui2.constants import AWACY_GAME_LIST_URL, LOCAL_AWACY_GAME_LIST
-from pupgui2.datastructures import BasicCompatTool, CTType
+from pupgui2.constants import GITHUB_API, GITLAB_API, GITLAB_API_RATELIMIT_TEXT
+from pupgui2.datastructures import BasicCompatTool, CTType, Launcher, SteamApp, LutrisGame, HeroicGame
 from pupgui2.steamutil import remove_steamtinkerlaunch
 
 
@@ -112,27 +114,42 @@ def apply_dark_theme(app: QApplication) -> None:
                 app.setPalette(QStyleFactory.create('fusion').standardPalette())
 
 
+def read_update_config_value(option: str, value, section: str = 'pupgui2', config_file: str = CONFIG_FILE) -> str:
+
+    """
+    Uses ConfigParser to read a value with a given option from a given section from a given config file.
+    By default, will read a option and a value from the 'pupgui2' section in CONFIG_FILE path in constants.py.
+    """
+
+    config = ConfigParser()
+
+    # Write value if given
+    if value:
+        config.read(config_file)
+        if not config.has_section(section):
+            config.add_section(section)
+        config[section][option] = value
+        os.makedirs(os.path.dirname(config_file), exist_ok=True)
+
+        with open(config_file, 'w') as cfg:
+            config.write(cfg)
+    # If no value, attempt to read from config
+    elif os.path.exists(config_file):
+        config.read(config_file)
+        if config.has_option(section, option):
+            value = config[section][option]
+
+    return value
+
+
 def config_theme(theme=None) -> str:
     """
     Read/update config for the theme
     Write theme to config or read if theme=None
     Return Type: str
     """
-    config = ConfigParser()
 
-    if theme:
-        config.read(CONFIG_FILE)
-        if not config.has_section('pupgui2'):
-            config.add_section('pupgui2')
-        config['pupgui2']['theme'] = theme
-        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-        with open(CONFIG_FILE, 'w') as file:
-            config.write(file)
-    elif os.path.exists(CONFIG_FILE):
-        config.read(CONFIG_FILE)
-        if config.has_option('pupgui2', 'theme'):
-            return config['pupgui2']['theme']
-    return theme
+    return read_update_config_value('theme', theme, section='pupgui2')
 
 
 def config_advanced_mode(advmode=None) -> str:
@@ -141,21 +158,26 @@ def config_advanced_mode(advmode=None) -> str:
     Write advmode to config or read if advmode=None
     Return Type: str
     """
-    config = ConfigParser()
 
-    if advmode:
-        config.read(CONFIG_FILE)
-        if not config.has_section('pupgui2'):
-            config.add_section('pupgui2')
-        config['pupgui2']['advancedmode'] = advmode
-        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-        with open(CONFIG_FILE, 'w') as file:
-            config.write(file)
-    elif os.path.exists(CONFIG_FILE):
-        config.read(CONFIG_FILE)
-        if config.has_option('pupgui2', 'advancedmode'):
-            return config['pupgui2']['advancedmode']
-    return advmode
+    return read_update_config_value('advancedmode', advmode, section='pupgui2')
+
+
+def config_github_access_token(github_token=None):
+
+    """
+    Read/update config for GitHub Access Token
+    """
+
+    return read_update_config_value('github_api_token', github_token, section='pupgui2')
+
+
+def config_gitlab_access_token(gitlab_token=None):
+
+    """
+    Read/update config for GitLab Access Token
+    """
+
+    return read_update_config_value('gitlab_api_token', gitlab_token, section='pupgui2')
 
 
 def create_compatibilitytools_folder() -> None:
@@ -484,7 +506,30 @@ def ghapi_rlcheck(json: dict):
     return json
 
 
-def is_online(host='https://api.github.com/repos/', timeout=3) -> bool:
+def glapi_rlcheck(json: dict):
+    if type(json) == dict:
+        # Is 'message' the right key? GitLab should return it as plaintext
+        # See: https://docs.gitlab.com/ee/administration/settings/user_and_ip_rate_limits.html#use-a-custom-rate-limit-response
+        if any(rate_limit_msg in json.get('message', '') for rate_limit_msg in GITLAB_API_RATELIMIT_TEXT):
+            print('Warning: GitLab API rate limit exceeded. You may need to wait a while or specify a GitLab API token generated for the given instance.')
+            QApplication.instance().message_box_message.emit(
+                QCoreApplication.instance().translate('util.py', 'Warning: GitLab API rate limit exceeded!'),
+                QCoreApplication.instance().translate('util.py', 'GitLab API rate limite exceeded. You may want to wait a while or specify a GitLab API key generated for this GitLab instance if you have one.'),
+                QMessageBox.Warning
+            )
+    return json
+
+
+def is_gitlab_instance(url: str) -> bool:
+    """
+    Check if a full API endpoint URL is in the list of known GitLab instances.
+    Return Type: bool
+    """
+
+    return any(instance in url for instance in GITLAB_API)
+
+
+def is_online(host='https://api.github.com/rate_limit/', timeout=5) -> bool:
     """
     Attempts to ping a given host using `requests`.
     Returns False if `requests` raises a `ConnectionError` or `Timeout` exception, otherwise returns True 
@@ -497,6 +542,116 @@ def is_online(host='https://api.github.com/repos/', timeout=3) -> bool:
     except (requests.ConnectionError, requests.Timeout):
         return False
 
+
+# Only used for dxvk and dxvk-async right now, but is potentially useful to more ctmods?
+def fetch_project_releases(releases_url: str, rs: requests.Session, count=100) -> List[str]:
+
+    """
+    List available releases for a given project URL hosted using requests.
+    Return Type: list[str]
+    """
+    releases_api_url: str = f'{releases_url}?per_page={str(count)}'
+
+    releases: dict = {}
+    tag_key: str = ''
+    if GITHUB_API in releases_url:
+        releases = ghapi_rlcheck(rs.get(releases_api_url).json())
+        tag_key = 'tag_name'
+    elif is_gitlab_instance(releases_url):
+        releases = glapi_rlcheck(rs.get(releases_api_url).json())
+        tag_key = 'name'
+    else:
+        return []  # Unknown API, cannot fetch releases!
+
+    return [release[tag_key] for release in releases if tag_key in release]
+
+
+def get_assets_from_release(release_url: str, release: dict) -> Dict:
+
+    """
+    Parse the assets list out of a given release.
+    Return Type: dict
+    """
+
+    if GITHUB_API in release_url:
+        return release.get('assets', {})
+    elif is_gitlab_instance(release_url):
+        return release.get('assets', {}).get('links', {})
+    else:
+        return {}
+
+
+def get_download_url_from_asset(release_url: str, asset: dict, release_format: str, asset_condition: Optional[Callable] = None) -> str:
+
+    """
+    Fetch the download link from a release asset matching a given release format and optional condition lambda.
+    Return Type: str
+    """
+
+    # Checks are identical for now but may be different for other APIs
+    valid_asset: str = ''
+    if GITHUB_API in release_url and asset.get('name', '').endswith(release_format):
+        valid_asset = asset['browser_download_url']
+    elif is_gitlab_instance(release_url) and asset.get('name', '').endswith(release_format):
+        valid_asset = asset['url']
+    else:
+        return ''
+
+    if asset_condition is None or asset_condition(asset):
+        return valid_asset
+
+    return ''
+
+
+# TODO in future if this is re-used for other ctmods other than DXVK and dxvk-async, try to parse more data i.e. checksum
+def fetch_project_release_data(release_url: str, release_format: str, rs: requests.Session, tag: str = '', asset_condition: Optional[Callable] = None) -> dict:
+
+    """
+    Fetch information about a given release based on its tag, with an optional condition lambda.
+    Return Type: dict
+    Content(s):
+        'version', 'date', 'download'
+    """
+
+    date_key: str = ''
+    api_tag = tag if tag else 'latest'
+
+    url: str = f'{release_url}/'
+    if GITHUB_API in release_url:
+        url += f'tags/{api_tag}'
+        date_key = 'published_at'
+    elif is_gitlab_instance(release_url):
+        url += api_tag
+        date_key = 'released_at'
+    else:
+        return {}  # Unknown API, cannot fetch data!
+
+    release: dict = rs.get(url).json()
+    values: dict = { 'version': release['tag_name'], 'date': release[date_key].split('T')[0] }
+
+    for asset in get_assets_from_release(release_url, release):
+        if asset_url := get_download_url_from_asset(release_url, asset, release_format, asset_condition=asset_condition):
+            values['download'] = asset_url
+            values['size'] = asset.get('size', None)
+
+            break
+
+    return values
+
+
+def build_headers_with_authorization(request_headers: dict, authorization_tokens: dict, token_type: str):
+
+    request_headers['Authorization'] = ''  # Reset old authentication
+    token: str = authorization_tokens.get(token_type, '')
+    if not token:        
+        return request_headers
+
+    if token_type == 'github':
+        request_headers['Authorization'] = f'token {token}'
+    elif token_type == 'gitlab':
+        request_headers['Authorization'] = f'Bearer {token}'
+
+    return request_headers
 
 def compat_tool_available(compat_tool: str, ctobjs: List[dict]) -> bool:
     """ Return whether a compat tool is available for a given launcher """
@@ -654,3 +809,66 @@ def extract_tar_zst(zst_path: str, extract_path: str) -> bool:
         print(f'Could not extract archive \'{zst_path}\': {e}')
 
     return False
+
+
+def get_launcher_from_installdir(install_dir: str) -> Launcher:
+
+    """
+    Return the launcher type based on the install path given.
+    Return Type: Launcher (Enum)
+    """
+
+    if 'steam/compatibilitytools.d' in install_dir.lower():
+        return Launcher.STEAM
+    elif 'lutris/runners' in install_dir.lower():
+        return Launcher.LUTRIS
+    elif 'heroic/tools' in install_dir.lower():
+        return Launcher.HEROIC
+    elif 'bottles/runners' in install_dir.lower():
+        return Launcher.BOTTLES
+    else:
+        return Launcher.UNKNOWN
+
+
+def create_missing_dependencies_message(ct_name: str, dependencies: List[str]) -> Tuple[str, bool]:
+
+    """
+    Generate a string message noting which dependencies are missing for a ctmod_name, with tr_context to translate relevant strings.
+    Return the string message and a boolean to note whether the dependencies were met or not.
+
+    Return Type: Tuple[str, bool]
+    """
+
+    deps_found = [ host_which(dep) for dep in dependencies ]
+
+    if all(deps_found):
+        return '', True
+
+    tr_missing = QCoreApplication.instance().translate('util.py', 'missing')
+    tr_found = QCoreApplication.instance().translate('util.py', 'found')
+    tr_raw_msg = QCoreApplication.instance().translate('util.py', 'You need following dependencies for {CT_NAME}:\n\n{DEP_ENUM}\n\nWill continue the installation anyway.')
+
+    tr_msg = tr_raw_msg.format(
+        CT_NAME=ct_name,
+        DEP_ENUM='\n'.join(f'{dep_name}: {tr_missing if not deps_found[i] else tr_found}' for i, dep_name in enumerate(dependencies))
+    )
+
+    return tr_msg, False
+
+
+def get_random_game_name(games: List[Union[SteamApp, LutrisGame, HeroicGame]]) -> str:
+    """ Return a random game name from list of SteamApp, LutrisGame, or HeroicGame """
+
+    if len(games) <= 0:
+        return ''
+    
+    tooltip_game_name = ''
+    random_game = random.choice(games)
+    if type(random_game) is SteamApp:
+        tooltip_game_name = random_game.game_name
+    elif type(random_game) is LutrisGame:
+        tooltip_game_name = random_game.name
+    elif type(random_game) is HeroicGame:
+        tooltip_game_name = random_game.title
+    
+    return tooltip_game_name

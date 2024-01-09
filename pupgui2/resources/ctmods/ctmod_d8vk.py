@@ -7,7 +7,9 @@ import requests
 
 from PySide6.QtCore import QObject, QCoreApplication, Signal, Property
 
-from pupgui2.util import ghapi_rlcheck, extract_zip
+from pupgui2.datastructures import Launcher
+from pupgui2.util import ghapi_rlcheck, extract_zip, get_launcher_from_installdir
+from pupgui2.util import build_headers_with_authorization
 
 
 CT_NAME = 'D8VK (nightly)'
@@ -28,7 +30,10 @@ class CtInstaller(QObject):
     def __init__(self, main_window = None):
         super(CtInstaller, self).__init__()
         self.p_download_canceled = False
-        self.rs = main_window.rs if main_window.rs else requests.Session()
+
+        self.rs = requests.Session()
+        rs_headers = build_headers_with_authorization({}, main_window.web_access_tokens, 'github')
+        self.rs.headers.update(rs_headers)
 
     def get_download_canceled(self):
         return self.p_download_canceled
@@ -163,9 +168,10 @@ class CtInstaller(QObject):
         Return Type: str
         """
 
-        if 'lutris/runners' in install_dir:
+        launcher = get_launcher_from_installdir(install_dir)
+        if launcher == Launcher.LUTRIS:
             return os.path.abspath(os.path.join(install_dir, '../../runtime/dxvk'))
-        if 'heroic/tools' in install_dir:
+        if launcher == Launcher.HEROIC:
             return os.path.abspath(os.path.join(install_dir, '../dxvk'))
         else:
             return install_dir  # Default to install_dir
